@@ -2,7 +2,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.edge.options import Options
+from selenium.webdriver.edge.service import Service
 import pandas as pd
 import time
 import os
@@ -48,16 +49,58 @@ def automatizar_ecrv_com_comitentes(nome_planilha, pasta_base=None):
         
         print(f"📊 TOTAL DE VEÍCULOS: {total_veiculos}")
         
-        # CONFIGURAÇÕES CHROME
+        # CONFIGURAÇÕES EDGE - CORRIGIDO
         options = Options()
+        
+        # Para versões mais recentes do Edge WebDriver, use esta sintaxe:
+        # Configurar preferências de download
         prefs = {
-            "download.default_directory": pasta_temp,  # 🔥 Download para pasta temporária
+            "download.default_directory": pasta_temp,
             "download.prompt_for_download": False,
             "plugins.always_open_pdf_externally": True,
+            "download.directory_upgrade": True,
+            "safebrowsing.enabled": False
         }
-        options.add_experimental_option("prefs", prefs)
         
-        driver = webdriver.Chrome(options=options)
+        # Método correto para Edge
+        options.use_chromium = True  # Edge é baseado no Chromium
+        
+        # Tentar diferentes métodos dependendo da versão
+        try:
+            # Método 1: Para Selenium 4+
+            options.add_experimental_option("prefs", prefs)
+        except:
+            try:
+                # Método 2: Alternativa
+                options.set_capability("ms:edgeOptions", {
+                    "prefs": prefs
+                })
+            except:
+                print("⚠️  Usando configuração básica do Edge")
+        
+        # Adicionar argumentos (se a versão suportar)
+        try:
+            options.add_argument("--inprivate")
+        except AttributeError:
+            print("⚠️  Argumentos não suportados nesta versão, continuando...")
+        
+        # Inicializar Edge WebDriver
+        try:
+            # Tentar com Service
+            service = Service()
+            driver = webdriver.Edge(service=service, options=options)
+        except:
+            # Fallback: tentar sem Service
+            driver = webdriver.Edge(options=options)
+        
+        # Configurar download via DevTools Protocol
+        try:
+            driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                'behavior': 'allow',
+                'downloadPath': pasta_temp
+            })
+        except:
+            print("⚠️  CDP commands não disponíveis, usando configuração padrão")
         
         try:
             print("🌐 Acessando sistema...")
@@ -135,12 +178,32 @@ def automatizar_ecrv_com_comitentes(nome_planilha, pasta_base=None):
                     
                     # 🔥 AGUARDAR E CAPTURAR O ARQUIVO BAIXADO
                     arquivo_baixado = None
-                    for _ in range(20):  # Tentar por 20 segundos
+                    tempo_inicio = time.time()
+                    
+                    while time.time() - tempo_inicio < 30:
                         time.sleep(1)
                         arquivos = os.listdir(pasta_temp)
+                        
+                        # Verificar se há algum arquivo na pasta
                         if arquivos:
-                            arquivo_baixado = arquivos[0]
-                            break
+                            for arquivo in arquivos:
+                                # Ignorar arquivos temporários
+                                if not arquivo.endswith('.tmp') and not arquivo.endswith('.crdownload'):
+                                    arquivo_baixado = arquivo
+                                    break
+                        
+                        if arquivo_baixado:
+                            caminho_arquivo = os.path.join(pasta_temp, arquivo_baixado)
+                            # Verificar se o arquivo está completamente baixado
+                            if os.path.exists(caminho_arquivo):
+                                try:
+                                    tamanho_atual = os.path.getsize(caminho_arquivo)
+                                    time.sleep(1)
+                                    tamanho_depois = os.path.getsize(caminho_arquivo)
+                                    if tamanho_atual == tamanho_depois and tamanho_atual > 0:
+                                        break
+                                except:
+                                    break
                     
                     if arquivo_baixado:
                         # 🔥 MOVER ARQUIVO PARA PASTA DO COMITENTE
@@ -148,11 +211,26 @@ def automatizar_ecrv_com_comitentes(nome_planilha, pasta_base=None):
                         caminho_origem = os.path.join(pasta_temp, arquivo_baixado)
                         
                         # 🔥 RENOMEAR ARQUIVO COM PLACA
-                        nome_novo = f"{placa}_{arquivo_baixado}"
+                        nome_base, extensao = os.path.splitext(arquivo_baixado)
+                        if not extensao:
+                            extensao = '.pdf'
+                        nome_novo = f"{placa}{extensao}"
                         caminho_destino = os.path.join(pasta_destino, nome_novo)
                         
-                        shutil.move(caminho_origem, caminho_destino)
-                        print(f"   ✅ PDF ORGANIZADO: {nome_novo}")
+                        # Esperar um pouco e tentar mover
+                        time.sleep(2)
+                        
+                        tentativas = 0
+                        while tentativas < 3:
+                            try:
+                                shutil.move(caminho_origem, caminho_destino)
+                                print(f"   ✅ PDF ORGANIZADO: {nome_novo}")
+                                break
+                            except Exception as e:
+                                tentativas += 1
+                                time.sleep(1)
+                                if tentativas == 3:
+                                    print(f"   ⚠️  Erro ao mover arquivo: {e}")
                     else:
                         print(f"   ⚠️  PDF não foi baixado")
                     
@@ -196,9 +274,10 @@ def automatizar_ecrv_com_comitentes(nome_planilha, pasta_base=None):
                 if pd.notna(comitente):
                     comitente_str = str(comitente).strip()
                     pasta_comitente = os.path.join(pasta_base, comitente_str)
-                    qtd_pdfs = len([f for f in os.listdir(pasta_comitente) if f.endswith('.pdf')])
-                    qtd_veiculos = df[df[coluna_comitente] == comitente].shape[0]
-                    print(f"📁 {comitente_str}: {qtd_pdfs}/{qtd_veiculos} PDFs")
+                    if os.path.exists(pasta_comitente):
+                        qtd_pdfs = len([f for f in os.listdir(pasta_comitente) if f.endswith('.pdf')])
+                        qtd_veiculos = df[df[coluna_comitente] == comitente].shape[0]
+                        print(f"📁 {comitente_str}: {qtd_pdfs}/{qtd_veiculos} PDFs")
             
             sucessos = df[df['processado'] == 'Sim'].shape[0]
             erros = df[df['processado'] == 'Erro'].shape[0]
@@ -211,18 +290,24 @@ def automatizar_ecrv_com_comitentes(nome_planilha, pasta_base=None):
             
         except Exception as e:
             print(f"❌ Erro durante automação: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             driver.quit()
             
             # 🔥 LIMPAR PASTA TEMPORÁRIA
             try:
                 shutil.rmtree(pasta_temp)
+                print(f"🧹 Pasta temporária limpa: {pasta_temp}")
             except:
                 pass
             
     except Exception as e:
         print(f"❌ Erro: {e}")
+        import traceback
+        traceback.print_exc()
 
+# ... (o resto do código permanece igual)
 # 🎯 CRIAR PLANILHA EXEMPLO
 def criar_planilha_exemplo():
     """
@@ -242,6 +327,8 @@ def criar_planilha_exemplo():
 if __name__ == "__main__":
     print("=" * 60)
     print("🤖 SISTEMA ORGANIZADOR POR COMITENTE")
+    print("=" * 60)
+    print("🚀 CONFIGURADO PARA MICROSOFT EDGE")
     print("=" * 60)
     
     # Verificar se planilha existe
