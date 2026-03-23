@@ -1,12 +1,4 @@
-selenium==4.24.0
-pandas==2.2.2
-openpyxl==3.1.5
-webdriver-manager==4.0.2
-undetected_chromedriver==3.0.1
-time==0.1.1
-os==0.1.1
-shutil==0.1.1
-pandas==2.2.2
-openpyxl==3.1.5
-webdriver-manager==4.0.2
-undetected_chromedriver==3.0.1
+undetected-chromedriver==3.5.5
+selenium==4.18.1
+pandas==2.2.1
+openpyxl==3.1.2
