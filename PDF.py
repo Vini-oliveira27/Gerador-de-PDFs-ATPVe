@@ -87,7 +87,7 @@ def automatizar_ecrv_com_undetected(nome_planilha, pasta_base=None):
         options.add_argument("--disable-dev-shm-usage")
         
         print("🌐 Iniciando Chrome...")
-        driver = uc.Chrome(options=options, version_main=145)
+        driver = uc.Chrome(options=options)
         
         try:
             # ABRIR SISTEMA
